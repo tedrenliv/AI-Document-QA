@@ -1,0 +1,7 @@
+google-generativeai
+google-genai
+chromadb
+requests
+chardet
+PyPDF2
+python-docx
