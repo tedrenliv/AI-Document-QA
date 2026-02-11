@@ -240,8 +240,9 @@ class QAApp:
                 self.root.after(0, lambda: self._on_processing_done(question, answer, backend_name))
 
             except ServiceUnavailableError as e:
+                msg = e.details.get("message", str(e))
                 self.root.after(0, lambda: self._on_processing_error(
-                    "Service unavailable", "Service Unavailable", e.details.get("message", str(e))))
+                    "Service unavailable", "Service Unavailable", msg))
             except ModelNotFoundError as e:
                 msg = (f"{e.message}\n\nTo install: {e.installation_cmd}" if e.installation_cmd
                        else ErrorMessageGenerator.get_ollama_model_missing_message(e.model_name))
@@ -252,9 +253,9 @@ class QAApp:
                     msg += f"• ollama pull {model}\n"
                 self.root.after(0, lambda: self._on_processing_error("Invalid model", "Invalid Model", msg))
             except AuthenticationError as e:
+                msg = e.details.get("message", ErrorMessageGenerator.get_gemini_auth_error_message())
                 self.root.after(0, lambda: self._on_processing_error(
-                    "Authentication failed", "Authentication Error",
-                    e.details.get("message", ErrorMessageGenerator.get_gemini_auth_error_message())))
+                    "Authentication failed", "Authentication Error", msg))
             except ProcessingTimeoutError as e:
                 msg = ErrorMessageGenerator.get_timeout_error_message(backend_name, e.timeout_seconds)
                 self.root.after(0, lambda: self._on_processing_error("Processing timed out", "Timeout Error", msg))
@@ -262,12 +263,13 @@ class QAApp:
                 msg = ErrorMessageGenerator.get_network_error_message(e.service_name)
                 self.root.after(0, lambda: self._on_processing_error("Network error", "Network Error", msg))
             except AIBackendError as e:
+                msg = f"{e.message}\n\nError Code: {e.error_code}"
                 self.root.after(0, lambda: self._on_processing_error(
-                    "AI processing error", "AI Error", f"{e.message}\n\nError Code: {e.error_code}"))
+                    "AI processing error", "AI Error", msg))
             except Exception as e:
+                msg = f"An unexpected error occurred: {e}\n\nPlease try again or switch to a different backend."
                 self.root.after(0, lambda: self._on_processing_error(
-                    "Unexpected error occurred", "Unexpected Error",
-                    f"An unexpected error occurred: {e}\n\nPlease try again or switch to a different backend."))
+                    "Unexpected error occurred", "Unexpected Error", msg))
 
         threading.Thread(target=_worker, daemon=True).start()
 
@@ -284,13 +286,30 @@ class QAApp:
         """Handle processing error on the main thread."""
         self.show_error_status(status_msg)
         self.ask_btn.config(state="normal", text="🔎 Ask")
-        messagebox.showerror(title, detail)
+        messagebox.showerror("Q&A Failed", f"[{title}]\n\n{detail}")
 
     def schedule_status_update(self):
-        """Schedule periodic backend status updates."""
-        self.update_backend_status()
-        # Schedule next update in 10 seconds
+        """Schedule periodic backend status updates in a background thread."""
+        def _check():
+            gemini_status = self.backend_factory.get_backend_status("gemini")
+            ollama_status = self.backend_factory.get_backend_status("ollama")
+            self.root.after(0, lambda: self._apply_status(gemini_status, ollama_status))
+        threading.Thread(target=_check, daemon=True).start()
         self.root.after(10000, self.schedule_status_update)
+
+    def _apply_status(self, gemini_status, ollama_status):
+        """Apply backend status to UI (must run on main thread)."""
+        if gemini_status["available"]:
+            self.gemini_status.config(text="✓ Ready", foreground="green")
+        elif gemini_status.get("status") == "api_key_required":
+            self.gemini_status.config(text="⚠ API Key Required", foreground="orange")
+        else:
+            self.gemini_status.config(text="✗ Not Available", foreground="red")
+
+        if ollama_status["available"]:
+            self.ollama_status.config(text="✓ Ready", foreground="green")
+        else:
+            self.ollama_status.config(text="✗ Not Available", foreground="red")
     
     def show_processing_status(self, message: str, show_progress: bool = True):
         """

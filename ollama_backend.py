@@ -28,7 +28,7 @@ class OllamaBackend(AIBackend):
     and uses the embeddinggemma:latest model for text processing and question answering.
     """
 
-    def __init__(self, base_url: str = "http://localhost:11434", model_name: str = "gemma2:2b"):
+    def __init__(self, base_url: str = "http://localhost:11434", model_name: str = "llama3.2:1b"):
         """
         Initialize the Ollama backend.
         
@@ -41,19 +41,19 @@ class OllamaBackend(AIBackend):
         
         # Timeout configuration for different operations
         self.connection_timeout = 5   # Quick timeout for availability checks
-        self.processing_timeout = 120  # Longer timeout for actual processing (2 minutes)
+        self.processing_timeout = 300  # Longer timeout for actual processing (5 minutes)
         
         # Set up logging
         self.logger = logging.getLogger(__name__)
         
         # Initialize retry manager for transient failures
-        self.retry_manager = RetryManager(max_retries=3, base_delay=1.0)
+        self.retry_manager = RetryManager(max_retries=1, base_delay=1.0)
         
         # List of preferred models in order of preference
         self.preferred_models = [
+            "llama3.2:1b",    # Fast, good quality
             "gemma2:2b",      # Fast and efficient, good quality
             "phi3:mini",      # Very small and fast
-            "llama3.2:1b",    # Fast, good quality
             "gemma2:9b",      # Larger, better quality
             "llama3.2:3b",    # Good balance
             "qwen2.5:3b",     # Alternative option

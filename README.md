@@ -70,8 +70,8 @@ echo "backend=gemini" >> config.txt
 **Ollama** — install a text generation model:
 
 ```bash
-ollama pull gemma2:2b        # recommended
-# or: ollama pull phi3:mini / llama3.2:1b
+ollama run llama3.2:1b       # recommended (fast, good quality)
+# or: ollama pull gemma2:2b / phi3:mini
 ```
 
 ### Run

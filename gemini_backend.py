@@ -32,7 +32,7 @@ class GeminiBackend(AIBackend):
                                    If None, the backend will not be available.
         """
         self.api_key = api_key
-        self.model_name = "gemini-2.0-flash-exp"
+        self.model_name = "gemini-2.0-flash"
         self._model = None
         
         # Initialize retry manager for transient failures
