@@ -301,11 +301,13 @@ class OllamaBackend(AIBackend):
         Returns:
             str: Formatted prompt
         """
-        # Create a structured prompt that works well with embeddinggemma
+        # Local models (llama3.2, gemma2, etc.) typically have 128K token windows;
+        # cap at ~100,000 chars (~25,000 tokens) to keep inference fast and reliable.
+        context = text[:100_000] if len(text) > 100_000 else text
         prompt = f"""Based on the following context, please answer the question accurately and concisely.
 
 Context:
-{text}
+{context}
 
 Question: {question}
 

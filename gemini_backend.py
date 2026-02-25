@@ -74,8 +74,8 @@ class GeminiBackend(AIBackend):
                 "message": ErrorMessageGenerator.get_gemini_auth_error_message()
             })
         
-        # Limit context to avoid token limits (4000 chars as in original implementation)
-        context_text = text[:4000] if len(text) > 4000 else text
+        # Gemini 2.0 Flash supports ~1M tokens; cap at 500,000 chars as a safety margin
+        context_text = text[:500_000] if len(text) > 500_000 else text
         prompt = f"Context:\n{context_text}\n\nQuestion: {question}"
         
         # Attempt processing with retry logic

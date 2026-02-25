@@ -1,43 +1,71 @@
-# AI Document Q&A
+# Skill-Enhanced RAG Expert System V3.0
 
-A Python application for asking natural-language questions about text documents, PDFs, and Word files. Supports **Google Gemini** (cloud) and **Ollama** (local, on-device) as interchangeable AI backends.
+**by Prof. Jun Ren**
+
+A Python application for asking natural-language questions about text documents, PDFs, and Word files. Supports **Google Gemini** (cloud) and **Ollama** (local, on-device) as interchangeable AI backends, with a modern browser-based web interface.
+
+---
 
 ## Features
 
-- **Multi-format support** — TXT, PDF, and DOCX files
-- **Dual backend** — Google Gemini (cloud API) or Ollama (local inference)
+- **Modern web UI** — Flask-powered single-page application with a responsive 3-panel layout
+- **Multi-file support** — upload and query multiple TXT, PDF, and DOCX files simultaneously
+- **Document preview panel** — browse the extracted text of each uploaded file directly in the UI, with tabbed navigation between files and a collapse toggle
+- **Dual backend** — Google Gemini (cloud API) or Ollama (local inference), switchable at runtime
 - **Automatic fallback** — switches to an available backend if the preferred one is down
+- **Live backend status** — green/orange/red indicators poll availability every 10 seconds
+- **Large context support** — Gemini 2.0 Flash handles up to ~500,000 chars; Ollama up to ~100,000 chars
 - **Vector search (RAG)** — CLI mode embeds documents into ChromaDB and retrieves relevant chunks before answering
-- **Threaded GUI** — UI stays responsive during long-running AI calls
 - **Retry & error handling** — exponential backoff, custom exception hierarchy, user-friendly error messages
+- **Q&A logging** — every question and answer is appended to `logbook.txt` with timestamp and backend name
+
+---
 
 ## Architecture
 
 ```
-┌─────────────────────────────────────────┐
-│            Applications                 │
-│  mainintegratedWORD.py  (GUI, all docs) │
-│  mainintegratedPDF.py   (GUI, PDF)      │
-│  main.py                (CLI + RAG)     │
-└──────────────┬──────────────────────────┘
-               │
-       ┌───────▼────────┐
-       │ AIBackendFactory│  ← factory + fallback
-       └───────┬────────┘
-               │
-       ┌───────▼────────┐
-       │   AIBackend     │  ← abstract interface
-       │  ├─ Gemini      │     (gemini_backend.py)
-       │  └─ Ollama      │     (ollama_backend.py)
-       └────────────────┘
-               │
-       ┌───────▼────────┐
-       │  Shared Utils   │
-       │  chunk.py       │  ← read files, chunking
-       │  backend_config │  ← persistent config
-       │  ai_backend_errors │ ← exceptions, retry, fallback
-       └────────────────┘
+┌──────────────────────────────────────────────────────────┐
+│                      Applications                        │
+│  web_app.py             (Flask web server + REST API)    │
+│  mainintegratedWORD.py  (Tkinter GUI, all formats)       │
+│  mainintegratedPDF.py   (Tkinter GUI, PDF)               │
+│  main.py                (CLI + ChromaDB RAG)             │
+└──────────────────┬───────────────────────────────────────┘
+                   │
+          ┌────────▼─────────┐
+          │ AIBackendFactory  │  ← factory + fallback manager
+          └────────┬─────────┘
+                   │
+          ┌────────▼─────────┐
+          │    AIBackend      │  ← abstract interface
+          │  ├─ GeminiBackend │     gemini_backend.py
+          │  └─ OllamaBackend │     ollama_backend.py
+          └────────┬─────────┘
+                   │
+          ┌────────▼─────────┐
+          │   Shared Utils    │
+          │  chunk.py         │  ← read files, chunking
+          │  backend_config   │  ← persistent config
+          │  ai_backend_errors│  ← exceptions, retry, fallback
+          └──────────────────┘
 ```
+
+### Web API endpoints
+
+| Method | Endpoint | Purpose |
+|--------|----------|---------|
+| `GET` | `/` | Serve the web UI |
+| `GET` | `/api/config` | Return saved API key and backend preference |
+| `GET` | `/api/backend-status` | Check Gemini & Ollama availability |
+| `POST` | `/api/switch-backend` | Switch active backend |
+| `POST` | `/api/update-api-key` | Update Gemini API key |
+| `GET` | `/api/files` | List uploaded filenames |
+| `POST` | `/api/upload` | Upload one or more documents |
+| `POST` | `/api/remove-file` | Remove a specific uploaded file |
+| `POST` | `/api/file-content` | Retrieve extracted text for preview |
+| `POST` | `/api/ask` | Ask a question across all uploaded files |
+
+---
 
 ## Quick Start
 
@@ -57,36 +85,53 @@ pip install -r requirements.txt
 **Google Gemini** — set your API key:
 
 ```bash
-# Option 1: environment variable
-export GOOGLE_API_KEY="your-key-here"
-
-# Option 2: enter it in the GUI when prompted
-
-# Option 3: config.txt
+# Option 1: config.txt
 echo "api_key=your-key-here" > config.txt
-echo "backend=gemini" >> config.txt
+echo "backend=gemini"       >> config.txt
+
+# Option 2: enter it directly in the web UI
 ```
 
 **Ollama** — install a text generation model:
 
 ```bash
-ollama run llama3.2:1b       # recommended (fast, good quality)
-# or: ollama pull gemma2:2b / phi3:mini
+ollama pull llama3.2:1b   # recommended (fast, good quality)
+# or: ollama pull gemma2:2b / phi3:mini / llama3.2:3b
 ```
 
-### Run
+### Run the web app
 
 ```bash
-# GUI (supports TXT, PDF, DOCX)
-python mainintegratedWORD.py
-
-# PDF-only GUI
-python mainintegratedPDF.py
-
-# CLI with vector search (RAG)
-python main.py --build               # index data.txt into ChromaDB
-python main.py --ask "your question"  # query indexed documents
+python web_app.py
+# then open http://localhost:5000 in your browser
 ```
+
+### Run the legacy Tkinter GUI
+
+```bash
+python mainintegratedWORD.py
+```
+
+### Run the CLI (vector search / RAG)
+
+```bash
+python main.py --build               # index data.txt into ChromaDB
+python main.py --ask "your question" # query indexed documents
+```
+
+---
+
+## Web Interface
+
+The browser UI has three panels:
+
+| Panel | Contents |
+|-------|----------|
+| **Left sidebar** | AI backend selector (Gemini / Ollama) with live status badges, Google API key field, and multi-file upload zone with per-file remove |
+| **Document Preview** | Tabbed viewer showing the extracted text of each uploaded file; click a tab to switch files; collapse to a slim strip when not needed |
+| **Q&A** | Question input (Enter to submit), processing status bar, answer display with copy button and source metadata |
+
+---
 
 ## Configuration
 
@@ -99,16 +144,21 @@ backend=gemini
 
 Accepted `backend` values: `gemini`, `ollama`.
 
+---
+
 ## Project Structure
 
 ```
 .
+├── web_app.py               # Flask web server & REST API
+├── templates/
+│   └── index.html           # Single-page web UI
 ├── ai_backend.py            # Abstract backend interface
 ├── ai_backend_errors.py     # Custom exceptions, retry/fallback managers
 ├── ai_backend_factory.py    # Factory for creating & switching backends
 ├── backend_config.py        # Persistent configuration (config.txt)
 ├── chunk.py                 # Document reading (TXT/PDF/DOCX) & chunking
-├── gemini_backend.py        # Google Gemini backend
+├── gemini_backend.py        # Google Gemini backend (2.0 Flash)
 ├── ollama_backend.py        # Local Ollama backend
 ├── main.py                  # CLI app with ChromaDB vector search
 ├── mainintegratedWORD.py    # Tkinter GUI (TXT, PDF, DOCX)
@@ -121,17 +171,13 @@ Accepted `backend` values: `gemini`, `ollama`.
 └── logbook.txt              # Q&A activity log (auto-generated)
 ```
 
+---
+
 ## Testing
 
 ```bash
 # Run all tests
 python run_tests.py
-
-# Unit tests only
-python run_tests.py --unit-only
-
-# Integration tests only
-python run_tests.py --integration-only
 
 # Specific test class
 python run_tests.py --class TestOllamaBackend
@@ -144,6 +190,8 @@ python run_tests.py --debug
 # List available test classes
 python run_tests.py --list-classes
 ```
+
+---
 
 ## Backend Usage (programmatic)
 
@@ -158,6 +206,8 @@ backend, fallback_msg = factory.get_current_backend_with_fallback()
 if backend:
     answer = backend.process_question(context_text, user_question)
 ```
+
+---
 
 ## Error Handling
 
