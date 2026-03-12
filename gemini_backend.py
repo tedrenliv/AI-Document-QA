@@ -10,8 +10,8 @@ import time
 from typing import Optional
 from ai_backend import AIBackend
 from ai_backend_errors import (
-    AuthenticationError, ProcessingTimeoutError, NetworkError, 
-    ErrorMessageGenerator, RetryManager
+    AuthenticationError, ProcessingTimeoutError, NetworkError,
+    ErrorMessageGenerator, RetryManager, RateLimitError
 )
 
 
@@ -108,9 +108,10 @@ class GeminiBackend(AIBackend):
                     if not self.retry_manager.should_retry(last_error, attempt):
                         break
                 
-                # Check for rate limiting (should retry)
-                elif any(keyword in error_str for keyword in ['rate limit', 'quota', 'too many requests']):
-                    last_error = NetworkError("Google Gemini (rate limited)", e)
+                # Check for rate limiting (should retry with longer delay)
+                elif any(keyword in error_str for keyword in ['rate limit', 'quota', 'too many requests', '429']):
+                    retry_after = self._parse_retry_after(e)
+                    last_error = RateLimitError("Google Gemini", retry_after=retry_after, original_error=e)
                     if not self.retry_manager.should_retry(last_error, attempt):
                         break
                 
@@ -120,12 +121,15 @@ class GeminiBackend(AIBackend):
             
             # If we should retry, wait and try again
             if attempt < self.retry_manager.max_retries:
-                delay = self.retry_manager.get_delay(attempt)
+                if isinstance(last_error, RateLimitError) and last_error.retry_after:
+                    delay = float(last_error.retry_after)
+                else:
+                    delay = self.retry_manager.get_delay(attempt)
                 self.retry_manager.log_retry(last_error, attempt, delay)
                 time.sleep(delay)
-        
+
         # If we get here, all retries failed
-        if isinstance(last_error, (ProcessingTimeoutError, NetworkError)):
+        if isinstance(last_error, (ProcessingTimeoutError, NetworkError, RateLimitError)):
             raise last_error
         else:
             raise RuntimeError(f"Failed to process question after {self.retry_manager.max_retries + 1} attempts")
@@ -183,6 +187,15 @@ class GeminiBackend(AIBackend):
         except Exception:
             self._model = None
             return False
+
+    def _parse_retry_after(self, error: Exception) -> Optional[int]:
+        """Extract Retry-After seconds from a rate limit error if present."""
+        error_str = str(error)
+        import re
+        match = re.search(r'retry.?after[:\s]+(\d+)', error_str, re.IGNORECASE)
+        if match:
+            return int(match.group(1))
+        return None
 
     def get_model_name(self) -> str:
         """

@@ -57,6 +57,26 @@ def backend_status():
     })
 
 
+@app.route("/api/ollama-models")
+def ollama_models():
+    ollama = _factory.get_backend("ollama")
+    models = ollama._get_available_models() if ollama else []
+    text_gen = [m for m in models if not any(kw in m.lower() for kw in ("embed", "nomic-embed"))]
+    current = getattr(ollama, "model_name", "")
+    return jsonify({"models": text_gen, "current": current})
+
+
+@app.route("/api/set-ollama-model", methods=["POST"])
+def set_ollama_model():
+    data = request.get_json()
+    model = data.get("model", "").strip()
+    ollama = _factory.get_backend("ollama")
+    if ollama and model:
+        ollama.model_name = model
+        return jsonify({"success": True})
+    return jsonify({"success": False, "error": "Invalid model"}), 400
+
+
 @app.route("/api/switch-backend", methods=["POST"])
 def switch_backend():
     data = request.get_json()

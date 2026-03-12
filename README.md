@@ -12,11 +12,12 @@ A Python application for asking natural-language questions about text documents,
 - **Multi-file support** — upload and query multiple TXT, PDF, and DOCX files simultaneously
 - **Document preview panel** — browse the extracted text of each uploaded file directly in the UI, with tabbed navigation between files and a collapse toggle
 - **Dual backend** — Google Gemini (cloud API) or Ollama (local inference), switchable at runtime
+- **Ollama model picker** — dropdown in the sidebar lists all installed text-generation models; select one without restarting
 - **Automatic fallback** — switches to an available backend if the preferred one is down
 - **Live backend status** — green/orange/red indicators poll availability every 10 seconds
 - **Large context support** — Gemini 2.0 Flash handles up to ~500,000 chars; Ollama up to ~100,000 chars
 - **Vector search (RAG)** — CLI mode embeds documents into ChromaDB and retrieves relevant chunks before answering
-- **Retry & error handling** — exponential backoff, custom exception hierarchy, user-friendly error messages
+- **Retry & error handling** — exponential backoff, rate-limit detection (with `Retry-After` header support), custom exception hierarchy, user-friendly error messages
 - **Q&A logging** — every question and answer is appended to `logbook.txt` with timestamp and backend name
 
 ---
@@ -64,6 +65,8 @@ A Python application for asking natural-language questions about text documents,
 | `POST` | `/api/remove-file` | Remove a specific uploaded file |
 | `POST` | `/api/file-content` | Retrieve extracted text for preview |
 | `POST` | `/api/ask` | Ask a question across all uploaded files |
+| `GET` | `/api/ollama-models` | List available Ollama text-generation models |
+| `POST` | `/api/set-ollama-model` | Set the active Ollama model |
 
 ---
 
@@ -115,9 +118,11 @@ python mainintegratedWORD.py
 ### Run the CLI (vector search / RAG)
 
 ```bash
-python main.py --build               # index data.txt into ChromaDB
+python main.py --build               # index data.txt into ChromaDB (resumable — safe to re-run daily)
 python main.py --ask "your question" # query indexed documents
 ```
+
+> **Note:** The `--build` command is **resumable**. It uses deterministic chunk IDs so re-running skips already-embedded chunks. If you hit the free-tier daily quota (1,000 embeddings/day), just run `--build` again the next day until the index is complete.
 
 ---
 
@@ -127,7 +132,7 @@ The browser UI has three panels:
 
 | Panel | Contents |
 |-------|----------|
-| **Left sidebar** | AI backend selector (Gemini / Ollama) with live status badges, Google API key field, and multi-file upload zone with per-file remove |
+| **Left sidebar** | AI backend selector (Gemini / Ollama) with live status badges; Ollama model dropdown (appears when Ollama is selected); Google API key field; multi-file upload zone with per-file remove |
 | **Document Preview** | Tabbed viewer showing the extracted text of each uploaded file; click a tab to switch files; collapse to a slim strip when not needed |
 | **Q&A** | Question input (Enter to submit), processing status bar, answer display with copy button and source metadata |
 
@@ -220,6 +225,7 @@ All backends raise exceptions from `ai_backend_errors.py`:
 | `InvalidModelError` | Model exists but wrong type (e.g. embedding-only) |
 | `AuthenticationError` | Invalid or missing API key |
 | `ProcessingTimeoutError` | Request exceeded timeout |
+| `RateLimitError` | API quota exceeded (429); respects `Retry-After` header |
 | `NetworkError` | Connection / DNS failure |
 
 Use `ErrorMessageGenerator` to convert any of these into user-friendly strings.

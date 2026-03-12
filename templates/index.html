@@ -462,6 +462,31 @@
     }
     .copy-btn:hover { background: var(--bg); border-color: #aab0c8; color: var(--text-primary); }
 
+    /* ── Ollama Model Select ─────────────────────────────── */
+    .model-select-wrap { position: relative; }
+    .model-select-wrap select {
+      width: 100%;
+      background: rgba(255,255,255,.07);
+      border: 1.5px solid rgba(255,255,255,.1);
+      border-radius: var(--radius-sm);
+      color: #e8eaf6;
+      padding: 9px 32px 9px 11px;
+      font-size: 13px;
+      font-family: 'Inter', sans-serif;
+      outline: none;
+      cursor: pointer;
+      appearance: none;
+      -webkit-appearance: none;
+      transition: border-color .15s, background .15s;
+    }
+    .model-select-wrap select:focus  { border-color: var(--accent); background: rgba(41,121,255,.08); }
+    .model-select-wrap select option { background: #252843; color: #e8eaf6; }
+    .model-select-wrap select:disabled { opacity: .35; cursor: not-allowed; }
+    .model-select-arrow {
+      position: absolute; right: 10px; top: 50%; transform: translateY(-50%);
+      pointer-events: none; color: var(--sidebar-muted); font-size: 11px;
+    }
+
     /* ── Scrollbars ───────────────────────────────────────── */
     ::-webkit-scrollbar { width: 5px; }
     ::-webkit-scrollbar-track { background: transparent; }
@@ -515,6 +540,17 @@
           </div>
           <span class="status-badge checking" id="ollama-badge">…</span>
         </label>
+      </div>
+
+      <!-- Ollama model selector (shown only when Ollama is active) -->
+      <div class="sb-section" id="ollama-model-section" style="display:none">
+        <div class="sb-label">Ollama Model</div>
+        <div class="model-select-wrap">
+          <select id="ollama-model-select">
+            <option value="">Loading models…</option>
+          </select>
+          <span class="model-select-arrow">▾</span>
+        </div>
       </div>
 
       <!-- API Key -->
@@ -651,7 +687,9 @@
   const answerText      = document.getElementById('answer-text');
   const answerFooter    = document.getElementById('answer-footer');
   const answerMeta      = document.getElementById('answer-meta');
-  const copyBtn         = document.getElementById('copy-btn');
+  const copyBtn              = document.getElementById('copy-btn');
+  const ollamaModelSection   = document.getElementById('ollama-model-section');
+  const ollamaModelSelect    = document.getElementById('ollama-model-select');
 
   // uploadedFiles mirrors the server-side _uploaded_files keys
   let uploadedFiles = new Set();
@@ -673,8 +711,50 @@
       const isGemini = data.current === 'gemini';
       apiKeyInput.disabled     = !isGemini;
       apiSection.style.opacity = isGemini ? '1' : '0.45';
+
+      // Show/hide Ollama model selector
+      if (isGemini) {
+        ollamaModelSection.style.display = 'none';
+      } else {
+        ollamaModelSection.style.display = '';
+        loadOllamaModels();
+      }
     } catch (_) {}
   }
+
+  // ── Ollama model selector ─────────────────────────────────
+  let ollamaModelsLoaded = false;
+
+  async function loadOllamaModels() {
+    if (ollamaModelsLoaded) return;
+    try {
+      const res  = await fetch('/api/ollama-models');
+      if (!res.ok) return;
+      const data = await res.json();
+      ollamaModelSelect.innerHTML = '';
+      if (!data.models.length) {
+        ollamaModelSelect.innerHTML = '<option value="">No models found</option>';
+        return;
+      }
+      data.models.forEach(m => {
+        const opt = document.createElement('option');
+        opt.value = m; opt.textContent = m;
+        if (m === data.current) opt.selected = true;
+        ollamaModelSelect.appendChild(opt);
+      });
+      ollamaModelsLoaded = true;
+    } catch (_) {}
+  }
+
+  ollamaModelSelect.addEventListener('change', async () => {
+    const model = ollamaModelSelect.value;
+    if (!model) return;
+    await fetch('/api/set-ollama-model', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ model }),
+    });
+  });
 
   function applyBadge(el, s) {
     if (s.available) {
@@ -696,6 +776,7 @@
 
   // ── Backend switch ────────────────────────────────────────
   async function switchBackend(type) {
+    if (type === 'ollama') ollamaModelsLoaded = false;  // force reload on switch
     await fetch('/api/switch-backend', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },

@@ -93,16 +93,33 @@ class ProcessingTimeoutError(AIBackendError):
 
 class NetworkError(AIBackendError):
     """Raised when network communication fails."""
-    
+
     def __init__(self, service_name: str, original_error: Exception = None):
         message = f"Network error communicating with {service_name}"
         details = {}
         if original_error:
             details["original_error"] = str(original_error)
             details["error_type"] = type(original_error).__name__
-            
+
         super().__init__(message, "NETWORK_ERROR", details)
         self.service_name = service_name
+        self.original_error = original_error
+
+
+class RateLimitError(AIBackendError):
+    """Raised when the API rate limit is exceeded."""
+
+    def __init__(self, service_name: str, retry_after: int = None, original_error: Exception = None):
+        message = f"Rate limit exceeded for {service_name}"
+        details = {}
+        if retry_after:
+            details["retry_after_seconds"] = retry_after
+        if original_error:
+            details["original_error"] = str(original_error)
+
+        super().__init__(message, "RATE_LIMIT_EXCEEDED", details)
+        self.service_name = service_name
+        self.retry_after = retry_after
         self.original_error = original_error
 
 
@@ -181,6 +198,20 @@ class ErrorMessageGenerator:
                 "• No firewall is blocking the connection\n\n"
                 "Try again in a moment or switch to a different backend."
             )
+
+    @staticmethod
+    def get_rate_limit_error_message(service_name: str, retry_after: int = None) -> str:
+        """Get user-friendly message for rate limit errors."""
+        wait_hint = f"Wait at least {retry_after} seconds before trying again." if retry_after else "Wait 60 seconds before trying again."
+        return (
+            f"{service_name} rate limit reached.\n\n"
+            f"{wait_hint}\n\n"
+            "To avoid rate limits:\n"
+            "• Space out your requests\n"
+            "• Use a smaller document\n"
+            "• Switch to Local Ollama for unlimited offline processing\n\n"
+            "Free tier limits: ~15 requests/minute, 1,500 requests/day."
+        )
     
     @staticmethod
     def get_timeout_error_message(backend_name: str, timeout_seconds: int) -> str:
@@ -238,9 +269,9 @@ class RetryManager:
             return False
         
         # Retry on transient errors
-        if isinstance(error, (NetworkError, ProcessingTimeoutError)):
+        if isinstance(error, (NetworkError, ProcessingTimeoutError, RateLimitError)):
             return True
-        
+
         # Don't retry on permanent errors
         if isinstance(error, (AuthenticationError, ModelNotFoundError, InvalidModelError)):
             return False

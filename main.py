@@ -1,9 +1,10 @@
 # main.py
 from __future__ import annotations
 
+import hashlib
 import os
 import sys
-import uuid
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import List, Optional
@@ -59,17 +60,22 @@ def embed(text: str, *, store: bool) -> List[float]:
     return result.embeddings[0].values
 
 
+def _chunk_id(file_path: Path, index: int) -> str:
+    """Deterministic ID from source file + chunk index so re-runs upsert, not duplicate."""
+    key = f"{file_path}::{index}"
+    return hashlib.sha1(key.encode()).hexdigest()
+
+
 def create_db(file_path: Optional[Path] = None, chunks: Optional[List[str]] = None) -> None:
     """
-    Create / refresh the Chroma collection by embedding and upserting chunks.
-    If file_path is None, read from data.txt and compute chunks.
+    Build or resume the Chroma collection.
+    Uses deterministic chunk IDs so re-runs skip already-embedded chunks
+    and safely resume after hitting a daily quota limit.
     """
     if file_path is None:
-        # If no file path is provided, default to "data.txt"
         file_path = Path("data.txt")
 
     if chunks is None:
-        # Read the file and chunk the content
         text = read_data(file_path)
         chunks = get_chunks(text)
 
@@ -77,19 +83,33 @@ def create_db(file_path: Optional[Path] = None, chunks: Optional[List[str]] = No
         print("No chunks to index.")
         return
 
-    # Upsert in small batches to avoid long single requests
-    BATCH = 32
+    # Find which IDs already exist so we can skip them
+    all_ids = [_chunk_id(file_path, i) for i in range(len(chunks))]
+    existing = set(collection.get(ids=all_ids, include=[])["ids"])
+    pending = [(i, cid, chunks[i]) for i, cid in enumerate(all_ids) if cid not in existing]
+
+    if not pending:
+        print(f"✅ All {len(chunks)} chunks already indexed. Nothing to do.")
+        return
+
+    print(f"Resuming: {len(existing)} already done, {len(pending)} remaining.")
+
     total = 0
-    for i in range(0, len(chunks), BATCH):
-        batch = chunks[i: i + BATCH]
-        ids = [str(uuid.uuid4()) for _ in batch]
-        embeddings = [embed(c, store=True) for c in batch]
-        metadatas = [{"source": str(file_path), "index": i + j} for j, _ in enumerate(batch)]
-        collection.upsert(ids=ids, embeddings=embeddings, documents=batch, metadatas=metadatas)
-        total += len(batch)
+    for idx, cid, text in pending:
+        embedding = embed(text, store=True)
+        collection.upsert(
+            ids=[cid],
+            embeddings=[embedding],
+            documents=[text],
+            metadatas=[{"source": str(file_path), "index": idx}],
+        )
+        total += 1
+        time.sleep(0.65)  # stay under 100 req/min free-tier limit
+        if total % 50 == 0:
+            print(f"  {len(existing) + total}/{len(chunks)} indexed...")
 
     count = collection.count()
-    print(f"✅ Indexed {total} chunks. Collection now has {count} total items.")
+    print(f"✅ Indexed {total} new chunks. Collection now has {count}/{len(chunks)} total items.")
 
 
 def query_db(query: str, top_k: int = 7) -> List[str]:
